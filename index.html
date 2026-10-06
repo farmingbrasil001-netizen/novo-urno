@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Urna Eletrônica Brasileira - Sincronizada em Tempo Real</title>
-  
+  <title>Urna Eletrônica Brasileira - WebRTC Peer-to-Peer</title>
+
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Font Awesome Icons -->
@@ -13,6 +13,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- PeerJS Library for WebRTC -->
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 
   <style>
     /* Estilo Gabinete Urna */
@@ -101,13 +104,14 @@
       <div class="bg-yellow-500 text-slate-900 font-extrabold px-3 py-1.5 rounded-lg text-sm flex items-center gap-2 shadow">
         <i class="fa-solid fa-check-double"></i> JUSTIÇA ELEITORAL
       </div>
-      <h1 class="text-base sm:text-lg font-bold text-slate-200 hidden sm:block" id="headerElectionTitle">Eleição Simulada</h1>
+      <h1 class="text-base sm:text-lg font-bold text-slate-200 hidden sm:block" id="headerElectionTitle">Eleição Simulada P2P</h1>
     </div>
 
     <div class="flex items-center gap-2">
-      <!-- Sync Status Badge -->
-      <span id="cloudStatusBadge" class="bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs px-2.5 py-1 rounded-md font-semibold flex items-center gap-1.5" title="Status da Conexão em Nuvem">
-        <i class="fa-solid fa-wifi text-[10px]"></i> <span id="cloudStatusText">Modo Local</span>
+      <!-- WebRTC Status Badge -->
+      <span id="webrtcBadge" class="bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs px-2.5 py-1 rounded-md font-semibold flex items-center gap-1.5" title="Status da Conexão WebRTC">
+        <i class="fa-solid fa-circle-notch fa-spin text-[10px]" id="webrtcIcon"></i> 
+        <span id="webrtcStatusText">Iniciando WebRTC...</span>
       </span>
 
       <!-- Secret Unlock Badge -->
@@ -122,19 +126,22 @@
     </div>
   </header>
 
-  <!-- Notice Banner -->
-  <div id="urlLinkNotice" class="w-full max-w-5xl bg-indigo-950/80 border-l-4 border-indigo-500 p-3 mb-3 rounded-r-lg text-xs sm:text-sm text-indigo-200 flex justify-between items-center gap-2 shadow">
-    <div>
-      <span class="font-bold text-indigo-400"><i class="fa-solid fa-globe me-1"></i> Votação Online:</span>
-      Esta urna carrega a eleição diretamente do **Link URL**! Para criar sua eleição e ver votos em tempo real, clique <span class="text-yellow-400 underline cursor-pointer font-bold" onclick="handleVersionClick()">5 vezes na "Versão 1.0"</span> acima.
+  <!-- Banner Informativo -->
+  <div id="p2pNoticeBanner" class="w-full max-w-5xl bg-indigo-950/80 border-l-4 border-indigo-500 p-3 mb-3 rounded-r-lg text-xs sm:text-sm text-indigo-200 flex flex-wrap justify-between items-center gap-2 shadow">
+    <div class="flex-1">
+      <span class="font-bold text-indigo-400"><i class="fa-solid fa-diagram-project me-1"></i> WebRTC P2P Ativo:</span>
+      <span id="bannerStatusDesc">Carregando conexão ponto a ponto diretamente entre os dispositivos...</span>
     </div>
+    <button onclick="copyVoterLink()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-3 py-1.5 rounded-md font-semibold transition flex items-center gap-1.5">
+      <i class="fa-solid fa-share-nodes"></i> Copiar Link para Eleitores
+    </button>
   </div>
 
   <!-- MAIN URNA CONTAINER -->
   <main class="w-full max-w-5xl flex-1 flex flex-col justify-center items-center my-1">
     <div class="urna-body w-full rounded-2xl p-4 sm:p-8 flex flex-col lg:flex-row gap-6 shadow-2xl relative border border-slate-300">
       
-      <!-- Mobile Header Header -->
+      <!-- Mobile Header -->
       <div class="lg:hidden flex items-center justify-between border-b border-slate-400 pb-2 mb-1">
         <div class="text-slate-800 font-bold text-xs uppercase tracking-wider flex items-center gap-2">
           <i class="fa-solid fa-shield-halved text-green-700"></i> Justiça Eleitoral
@@ -214,7 +221,7 @@
           </div>
           <div>
             <h2 class="text-lg font-bold text-white">Painel do Criador de Eleição</h2>
-            <p class="text-xs text-slate-400">Cadastre candidatos, obtenha o link de votação e veja a apuração online em tempo real.</p>
+            <p class="text-xs text-slate-400">Gerencie candidatos, conexões WebRTC ativas e acompanhe a apuração ao vivo.</p>
           </div>
         </div>
         <button onclick="toggleAdminModal()" class="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition">
@@ -223,18 +230,15 @@
       </div>
 
       <!-- Abas de Navegação -->
-      <div class="flex border-b border-slate-700 bg-slate-800/50 px-4">
-        <button id="tabCandidatesBtn" onclick="switchAdminTab('candidates')" class="py-3 px-4 font-semibold text-sm border-b-2 border-emerald-500 text-emerald-400 flex items-center gap-2">
-          <i class="fa-solid fa-users"></i> Candidatos & Config
+      <div class="flex border-b border-slate-700 bg-slate-800/50 px-4 overflow-x-auto">
+        <button id="tabCandidatesBtn" onclick="switchAdminTab('candidates')" class="py-3 px-4 font-semibold text-sm border-b-2 border-emerald-500 text-emerald-400 flex items-center gap-2 whitespace-nowrap">
+          <i class="fa-solid fa-users"></i> Candidatos
         </button>
-        <button id="tabShareBtn" onclick="switchAdminTab('share')" class="py-3 px-4 font-semibold text-sm border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2">
-          <i class="fa-solid fa-link"></i> Link de Votação
+        <button id="tabShareBtn" onclick="switchAdminTab('share')" class="py-3 px-4 font-semibold text-sm border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 whitespace-nowrap">
+          <i class="fa-solid fa-share-nodes"></i> Link & WebRTC
         </button>
-        <button id="tabResultsBtn" onclick="switchAdminTab('results')" class="py-3 px-4 font-semibold text-sm border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2">
-          <i class="fa-solid fa-chart-column"></i> Apuração Online
-        </button>
-        <button id="tabFirebaseBtn" onclick="switchAdminTab('firebase')" class="py-3 px-4 font-semibold text-sm border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2">
-          <i class="fa-solid fa-cloud"></i> Configurar Nuvem (Firebase)
+        <button id="tabResultsBtn" onclick="switchAdminTab('results')" class="py-3 px-4 font-semibold text-sm border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 whitespace-nowrap">
+          <i class="fa-solid fa-chart-column"></i> Apuração WebRTC
         </button>
       </div>
 
@@ -244,19 +248,15 @@
         <!-- ABA 1: CANDIDATOS -->
         <div id="tabCandidates" class="space-y-6">
           <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-700/60 space-y-3">
-            <h3 class="text-sm font-bold text-slate-300 uppercase tracking-wider">Configurações Básicas</h3>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <h3 class="text-sm font-bold text-slate-300 uppercase tracking-wider">Configurações Gerais</h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label class="block text-xs font-medium text-slate-400 mb-1">Título da Eleição</label>
                 <input type="text" id="adminElectionTitle" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500" placeholder="Ex: Eleição da Turma 2026">
               </div>
               <div>
-                <label class="block text-xs font-medium text-slate-400 mb-1">Cargo Politico</label>
+                <label class="block text-xs font-medium text-slate-400 mb-1">Cargo Político</label>
                 <input type="text" id="adminRoleName" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500" placeholder="Ex: PRESIDENTE">
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-400 mb-1">ID Único da Eleição (Nuvem)</label>
-                <input type="text" id="adminElectionId" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm font-mono text-emerald-400 focus:outline-none focus:border-emerald-500" placeholder="Ex: sala101">
               </div>
             </div>
           </div>
@@ -281,7 +281,7 @@
               </div>
               <div>
                 <label class="block text-xs font-medium text-slate-400 mb-1">URL da Foto</label>
-                <input type="text" id="candPhoto" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500" placeholder="Opcional (Link de imagem)">
+                <input type="text" id="candPhoto" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500" placeholder="Opcional (Link da imagem)">
               </div>
             </div>
             <button onclick="addCandidate()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2 rounded-lg transition text-sm flex items-center justify-center gap-2">
@@ -298,31 +298,40 @@
           </div>
         </div>
 
-        <!-- ABA 2: LINK DE COMPARTILHAMENTO -->
+        <!-- ABA 2: LINK & WEBRTC -->
         <div id="tabShare" class="hidden space-y-4">
           <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-700/60 space-y-3">
             <h3 class="text-sm font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-2">
-              <i class="fa-solid fa-share-nodes"></i> Link Direto de Votação
+              <i class="fa-solid fa-share-nodes"></i> Link Único P2P de Votação
             </h3>
             <p class="text-xs text-slate-300">
-              Copie o link abaixo e mande para seus amigos! Quando eles clicarem, o navegador vai abrir direto nesta urna com os candidatos cadastrados e os votos serão enviados em tempo real para seu painel.
+              Copie este link e mande para as pessoas via WhatsApp, Discord ou Chat. Quando abrirem o link, a urna se conectará via **WebRTC P2P** diretamente com seu dispositivo e mandará os votos ao vivo para a apuração.
             </p>
             
             <div class="relative">
-              <input id="electionLinkOutput" readonly type="text" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 pr-24 text-xs font-mono text-emerald-400 focus:outline-none" />
-              <button onclick="copyElectionLink()" class="absolute top-1.5 right-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-3 py-1.5 rounded font-semibold transition">
+              <input id="electionLinkOutput" readonly type="text" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 pr-28 text-xs font-mono text-emerald-400 focus:outline-none" />
+              <button onclick="copyVoterLink()" class="absolute top-1.5 right-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-3 py-1.5 rounded font-semibold transition">
                 <i class="fa-solid fa-copy me-1"></i> Copiar Link
               </button>
             </div>
             <p id="copySuccessMsg" class="text-xs text-emerald-400 font-semibold hidden"><i class="fa-solid fa-check me-1"></i> Link copiado para a área de transferência!</p>
           </div>
+
+          <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-700/60 space-y-3">
+            <h3 class="text-sm font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <i class="fa-solid fa-users flex me-1"></i> Eleitores Conectados (WebRTC Peers)
+            </h3>
+            <div id="connectedPeersList" class="text-xs text-slate-400">
+              Nenhum eleitor conectado no momento. Mande o link para alguém abrir em outro telefone/computador!
+            </div>
+          </div>
         </div>
 
-        <!-- ABA 3: RESULTADOS ONLINE -->
+        <!-- ABA 3: RESULTADOS WEBRTC -->
         <div id="tabResults" class="hidden space-y-4">
           <div class="flex justify-between items-center bg-slate-900/60 p-4 rounded-xl border border-slate-700/60">
             <div>
-              <span class="text-xs text-slate-400 uppercase font-semibold">Total de Votos (Sincronizado)</span>
+              <span class="text-xs text-slate-400 uppercase font-semibold">Total de Votos (WebRTC P2P)</span>
               <div class="text-2xl font-extrabold text-white" id="totalVotesCount">0</div>
             </div>
             <button onclick="resetVotes()" class="bg-rose-600/20 text-rose-400 hover:bg-rose-600/30 border border-rose-500/30 text-xs px-3 py-2 rounded-lg font-semibold transition flex items-center gap-2">
@@ -336,43 +345,12 @@
           </div>
         </div>
 
-        <!-- ABA 4: CONFIGURAÇÃO FIREBASE -->
-        <div id="tabFirebase" class="hidden space-y-4">
-          <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-700/60 space-y-3">
-            <h3 class="text-sm font-bold text-amber-400 uppercase tracking-wider flex items-center gap-2">
-              <i class="fa-solid fa-cloud"></i> Configurações do Firebase (Nuvem em Tempo Real)
-            </h3>
-            <p class="text-xs text-slate-300">
-              Para sincronizar os votos dos telefones dos seus amigos com a sua tela em tempo real, cole suas credenciais do **Firebase Firestore** aqui. Se você não preencher, a urna usará o armazenamento local.
-            </p>
-
-            <div class="space-y-3 pt-2">
-              <div>
-                <label class="block text-xs font-medium text-slate-400 mb-1">API Key</label>
-                <input type="text" id="fbApiKey" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-amber-500" placeholder="AIzaSy...">
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-400 mb-1">Project ID</label>
-                <input type="text" id="fbProjectId" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-amber-500" placeholder="minha-urna-123">
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-400 mb-1">App ID</label>
-                <input type="text" id="fbAppId" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-amber-500" placeholder="1:123456789:web:abcdef">
-              </div>
-            </div>
-
-            <button onclick="saveFirebaseCredentials()" class="w-full bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold py-2 rounded-lg transition shadow mt-2">
-              Salvar Conexão com Firebase
-            </button>
-          </div>
-        </div>
-
       </div>
 
       <!-- Rodapé Modal -->
       <div class="bg-slate-900 p-4 border-t border-slate-700 flex justify-end gap-3">
         <button onclick="saveAdminSettings()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm px-6 py-2 rounded-lg shadow transition">
-          Salvar e Fechar
+          Salvar e Transmitir Atualizações
         </button>
       </div>
 
@@ -380,141 +358,8 @@
   </div>
 
   <footer class="text-center text-xs text-slate-500 my-2">
-    Urna Eletrônica Brasileira • Simulador Online com Sincronização em Nuvem
+    Urna Eletrônica Brasileira • Sincronização Realtime via WebRTC Peer-to-Peer
   </footer>
-
-  <!-- Firebase Modular Web SDK -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, getDoc, setDoc, updateDoc, increment, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-    /* ========================================================================
-       FIREBASE REALTIME ENGINE
-       ======================================================================== */
-    let db = null;
-    let auth = null;
-    let firebaseActive = false;
-
-    // Configuração global / Padrão fornecido pelo ambiente
-    const envAppId = typeof __app_id !== 'undefined' ? __app_id : 'urna-default';
-    const envFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-    const envAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
-    window.initFirebaseOnline = async function() {
-      let customConfig = JSON.parse(localStorage.getItem('urna_fb_config') || 'null');
-      let configToUse = customConfig || envFirebaseConfig;
-
-      if (!configToUse || !configToUse.apiKey) {
-        console.log('Firebase não configurado. Utilizando armazenamento local.');
-        updateCloudStatusBadge(false);
-        return;
-      }
-
-      try {
-        const app = initializeApp(configToUse);
-        db = getFirestore(app);
-        auth = getAuth(app);
-
-        if (envAuthToken) {
-          await signInWithCustomToken(auth, envAuthToken);
-        } else {
-          await signInAnonymously(auth);
-        }
-
-        firebaseActive = true;
-        updateCloudStatusBadge(true);
-        listenLiveVotes();
-      } catch (err) {
-        console.error('Erro ao conectar com Firebase:', err);
-        updateCloudStatusBadge(false);
-      }
-    };
-
-    function updateCloudStatusBadge(isOnline) {
-      const badge = document.getElementById('cloudStatusBadge');
-      const text = document.getElementById('cloudStatusText');
-      if (isOnline) {
-        badge.className = "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs px-2.5 py-1 rounded-md font-semibold flex items-center gap-1.5";
-        text.innerText = "Nuvem Sincronizada";
-      } else {
-        badge.className = "bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs px-2.5 py-1 rounded-md font-semibold flex items-center gap-1.5";
-        text.innerText = "Modo Local";
-      }
-    }
-
-    // Escutar votos em tempo real da nuvem
-    function listenLiveVotes() {
-      if (!firebaseActive || !db) return;
-
-      const electionDocId = window.electionData.id || 'default-election';
-      const docRef = doc(db, 'artifacts', envAppId, 'public', 'data', 'elections', electionDocId);
-
-      onSnapshot(docRef, (snapshot) => {
-        if (snapshot.exists()) {
-          const data = snapshot.data();
-          if (data.votes) {
-            window.electionData.votes = data.votes;
-            window.saveElectionDataLocally();
-            if (typeof window.renderResults === 'function') {
-              window.renderResults();
-            }
-          }
-        }
-      }, (err) => {
-        console.error('Erro escutando snapshot:', err);
-      });
-    }
-
-    // Enviar voto para a nuvem
-    window.cloudRecordVote = async function(voteKey) {
-      if (!firebaseActive || !db) return;
-
-      const electionDocId = window.electionData.id || 'default-election';
-      const docRef = doc(db, 'artifacts', envAppId, 'public', 'data', 'elections', electionDocId);
-
-      try {
-        const snap = await getDoc(docRef);
-        if (!snap.exists()) {
-          // Criar documento inicial
-          let initialVotes = { ...window.electionData.votes };
-          initialVotes[voteKey] = (initialVotes[voteKey] || 0) + 1;
-          await setDoc(docRef, {
-            title: window.electionData.title,
-            votes: initialVotes,
-            updatedAt: new Date().toISOString()
-          });
-        } else {
-          // Incrementar voto atomicamente
-          await updateDoc(docRef, {
-            [`votes.${voteKey}`]: increment(1),
-            updatedAt: new Date().toISOString()
-          });
-        }
-      } catch (err) {
-        console.error('Erro ao enviar voto para nuvem:', err);
-      }
-    };
-
-    window.cloudResetVotes = async function() {
-      if (!firebaseActive || !db) return;
-      const electionDocId = window.electionData.id || 'default-election';
-      const docRef = doc(db, 'artifacts', envAppId, 'public', 'data', 'elections', electionDocId);
-
-      try {
-        let resetObj = {};
-        Object.keys(window.electionData.votes).forEach(k => {
-          resetObj[`votes.${k}`] = 0;
-        });
-        await updateDoc(docRef, resetObj);
-      } catch (err) {
-        console.error('Erro ao resetar votos na nuvem:', err);
-      }
-    };
-
-    // Inicializar no carregamento
-    window.initFirebaseOnline();
-  </script>
 
   <script>
     /* ========================================================================
@@ -564,11 +409,10 @@
     }
 
     /* ========================================================================
-       ESTADO DA ELEIÇÃO & HASH DE URL
+       ESTADO DA ELEIÇÃO
        ======================================================================== */
     const DEFAULT_ELECTION = {
-      id: "sala-principal",
-      title: "Eleição Geral Simulada",
+      title: "Eleição Simulada P2P",
       role: "PRESIDENTE",
       digitCount: 2,
       candidates: [
@@ -590,64 +434,221 @@
 
     window.electionData = DEFAULT_ELECTION;
 
-    // Carregar do Hash da URL (se existir)
-    function loadElectionFromUrlHash() {
-      const hash = window.location.hash;
-      if (hash && hash.includes('#election=')) {
+    function loadLocalElection() {
+      const local = localStorage.getItem('urna_p2p_election');
+      if (local) {
         try {
-          const b64 = hash.split('#election=')[1];
-          const jsonStr = decodeURIComponent(escape(atob(b64)));
-          const parsed = JSON.parse(jsonStr);
-
-          if (parsed.title && parsed.candidates) {
-            window.electionData = {
-              id: parsed.id || 'url-election',
-              title: parsed.title,
-              role: parsed.role || 'PRESIDENTE',
-              digitCount: parsed.digitCount || 2,
-              candidates: parsed.candidates,
-              votes: parsed.votes || { "BRANCO": 0, "NULO": 0 }
-            };
-            
-            // Garantir chaves para cada candidato
-            window.electionData.candidates.forEach(c => {
-              if (window.electionData.votes[c.number] === undefined) {
-                window.electionData.votes[c.number] = 0;
-              }
-            });
-
-            window.saveElectionDataLocally();
-            console.log("Eleição carregada com sucesso da URL Hash!");
-            return true;
-          }
-        } catch (err) {
-          console.error("Falha ao ler URL Hash da eleição:", err);
-        }
-      }
-      return false;
-    }
-
-    // Carregar Dados Locais
-    function loadElectionData() {
-      const loadedUrl = loadElectionFromUrlHash();
-      if (!loadedUrl) {
-        const local = localStorage.getItem('urna_election_data');
-        if (local) {
           window.electionData = JSON.parse(local);
-        }
+        } catch (e) {}
       }
       updateElectionTitles();
     }
 
-    window.saveElectionDataLocally = function() {
-      localStorage.setItem('urna_election_data', JSON.stringify(window.electionData));
+    function saveLocalElection() {
+      localStorage.setItem('urna_p2p_election', JSON.stringify(window.electionData));
       updateElectionTitles();
-    };
+    }
 
     function updateElectionTitles() {
       document.getElementById('headerElectionTitle').innerText = window.electionData.title;
       document.getElementById('currentElectionTitleMobile').innerText = window.electionData.title;
       document.getElementById('currentElectionTitleDesktop').innerText = window.electionData.title;
+    }
+
+    /* ========================================================================
+       WEBRTC PEERJS ENGINE (P2P REALTIME)
+       ======================================================================== */
+    let peer = null;
+    let peerId = null;
+    let targetRoomId = null; // ID do Host (se for eleitor)
+    let isHost = true;
+    let connectedConnections = []; // Conexões ativas (se for Host)
+    let hostConnection = null; // Conexão com o Host (se for Eleitor)
+
+    function initWebRTC() {
+      // Verificar se existe um hash `#room=XXXX` na URL
+      const hash = window.location.hash;
+      if (hash && hash.includes('#room=')) {
+        targetRoomId = hash.split('#room=')[1];
+        isHost = false;
+      }
+
+      // Inicializar PeerJS na nuvem pública gratuita
+      peer = new Peer();
+
+      peer.on('open', (id) => {
+        peerId = id;
+        console.log("Meu Peer ID WebRTC:", peerId);
+
+        if (isHost) {
+          updateWebRTCBadge('online', `Host Online (${connectedConnections.length} peers)`);
+          document.getElementById('bannerStatusDesc').innerText = `Você é o HOST desta eleição. Compartilhe o link para receber votos em tempo real via WebRTC.`;
+          generateVoterLink();
+        } else {
+          updateWebRTCBadge('connecting', 'Conectando ao Host...');
+          document.getElementById('bannerStatusDesc').innerText = `Conectando via WebRTC ao Host da eleição (${targetRoomId})...`;
+          connectToHost(targetRoomId);
+        }
+      });
+
+      peer.on('connection', (conn) => {
+        if (!isHost) return; // Apenas o Host aceita conexões de eleitores
+
+        connectedConnections.push(conn);
+        updateWebRTCBadge('online', `Host Online (${connectedConnections.length} eleitores)`);
+        updateConnectedPeersUI();
+
+        conn.on('open', () => {
+          // Quando o eleitor se conecta, enviar as configurações da eleição atual para ele
+          conn.send({
+            type: 'SYNC_ELECTION',
+            data: {
+              title: window.electionData.title,
+              role: window.electionData.role,
+              digitCount: window.electionData.digitCount,
+              candidates: window.electionData.candidates
+            }
+          });
+        });
+
+        conn.on('data', (data) => {
+          handleIncomingWebRTCData(data, conn);
+        });
+
+        conn.on('close', () => {
+          connectedConnections = connectedConnections.filter(c => c !== conn);
+          updateWebRTCBadge('online', `Host Online (${connectedConnections.length} eleitores)`);
+          updateConnectedPeersUI();
+        });
+      });
+
+      peer.on('error', (err) => {
+        console.error("Erro WebRTC PeerJS:", err);
+        updateWebRTCBadge('error', 'Erro WebRTC');
+      });
+    }
+
+    function connectToHost(roomId) {
+      if (!peer) return;
+      hostConnection = peer.connect(roomId);
+
+      hostConnection.on('open', () => {
+        updateWebRTCBadge('online', 'Conectado ao Host!');
+        document.getElementById('bannerStatusDesc').innerText = `Conectado via WebRTC P2P! As escolhas desta urna estão sincronizadas com o Host.`;
+      });
+
+      hostConnection.on('data', (data) => {
+        if (data.type === 'SYNC_ELECTION') {
+          console.log("Configurações da eleição recebidas do Host via WebRTC:", data.data);
+          window.electionData.title = data.data.title;
+          window.electionData.role = data.data.role;
+          window.electionData.digitCount = data.data.digitCount;
+          window.electionData.candidates = data.data.candidates;
+          saveLocalElection();
+          renderScreen();
+        }
+      });
+
+      hostConnection.on('close', () => {
+        updateWebRTCBadge('error', 'Desconectado do Host');
+      });
+    }
+
+    function handleIncomingWebRTCData(data, conn) {
+      if (data.type === 'VOTE') {
+        const voteKey = data.voteKey;
+        console.log("Voto recebido via WebRTC P2P:", voteKey);
+
+        // Incrementar voto no Host
+        window.electionData.votes[voteKey] = (window.electionData.votes[voteKey] || 0) + 1;
+        saveLocalElection();
+
+        if (typeof window.renderResults === 'function') {
+          window.renderResults();
+        }
+
+        // Confirmar recebimento de volta ao eleitor (opcional)
+        conn.send({ type: 'VOTE_ACK' });
+      }
+    }
+
+    function sendVoteOverWebRTC(voteKey) {
+      if (!isHost && hostConnection && hostConnection.open) {
+        hostConnection.send({
+          type: 'VOTE',
+          voteKey: voteKey
+        });
+      }
+    }
+
+    function broadcastElectionUpdateToPeers() {
+      if (!isHost) return;
+      connectedConnections.forEach(conn => {
+        if (conn.open) {
+          conn.send({
+            type: 'SYNC_ELECTION',
+            data: {
+              title: window.electionData.title,
+              role: window.electionData.role,
+              digitCount: window.electionData.digitCount,
+              candidates: window.electionData.candidates
+            }
+          });
+        }
+      });
+    }
+
+    function updateWebRTCBadge(status, text) {
+      const badge = document.getElementById('webrtcBadge');
+      const icon = document.getElementById('webrtcIcon');
+      const statusText = document.getElementById('webrtcStatusText');
+
+      statusText.innerText = text;
+
+      if (status === 'online') {
+        badge.className = "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs px-2.5 py-1 rounded-md font-semibold flex items-center gap-1.5";
+        icon.className = "fa-solid fa-wifi text-[10px]";
+      } else if (status === 'connecting') {
+        badge.className = "bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs px-2.5 py-1 rounded-md font-semibold flex items-center gap-1.5";
+        icon.className = "fa-solid fa-circle-notch fa-spin text-[10px]";
+      } else {
+        badge.className = "bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs px-2.5 py-1 rounded-md font-semibold flex items-center gap-1.5";
+        icon.className = "fa-solid fa-triangle-exclamation text-[10px]";
+      }
+    }
+
+    function generateVoterLink() {
+      const baseUrl = window.location.origin + window.location.pathname;
+      const fullUrl = `${baseUrl}#room=${peerId}`;
+      document.getElementById('electionLinkOutput').value = fullUrl;
+    }
+
+    function copyVoterLink() {
+      const input = document.getElementById('electionLinkOutput');
+      if (input.value) {
+        input.select();
+        document.execCommand('copy');
+        const msg = document.getElementById('copySuccessMsg');
+        msg.classList.remove('hidden');
+        setTimeout(() => msg.classList.add('hidden'), 3000);
+      } else {
+        alert("Aguardando inicialização da sala WebRTC...");
+      }
+    }
+
+    function updateConnectedPeersUI() {
+      const container = document.getElementById('connectedPeersList');
+      if (connectedConnections.length === 0) {
+        container.innerHTML = `<p class="text-xs text-slate-500">Nenhum eleitor conectado no momento. Mande o link para alguém abrir em outro telefone/computador!</p>`;
+        return;
+      }
+
+      container.innerHTML = connectedConnections.map((c, i) => `
+        <div class="bg-slate-900 p-2.5 rounded border border-slate-700/80 flex justify-between items-center my-1">
+          <span class="font-mono text-emerald-400"><i class="fa-solid fa-mobile-screen me-2 text-slate-400"></i> Eleitor #${i + 1} (${c.peer})</span>
+          <span class="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded">Conectado P2P</span>
+        </div>
+      `).join('');
     }
 
     /* ========================================================================
@@ -817,12 +818,10 @@
 
       // 1. Atualizar localmente
       window.electionData.votes[voteKey] = (window.electionData.votes[voteKey] || 0) + 1;
-      window.saveElectionDataLocally();
+      saveLocalElection();
 
-      // 2. Enviar para a Nuvem em Tempo Real (Firebase)
-      if (typeof window.cloudRecordVote === 'function') {
-        window.cloudRecordVote(voteKey);
-      }
+      // 2. Enviar via WebRTC P2P (Se for eleitor)
+      sendVoteOverWebRTC(voteKey);
 
       playUrnaFimSound();
       isFim = true;
@@ -871,29 +870,21 @@
     }
 
     function switchAdminTab(tabName) {
-      ['tabCandidates', 'tabShare', 'tabResults', 'tabFirebase'].forEach(t => {
+      ['tabCandidates', 'tabShare', 'tabResults'].forEach(t => {
         document.getElementById(t).classList.add('hidden');
-        document.getElementById(t + 'Btn').className = "py-3 px-4 font-semibold text-sm border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2";
+        document.getElementById(t + 'Btn').className = "py-3 px-4 font-semibold text-sm border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 whitespace-nowrap";
       });
 
       document.getElementById('tab' + tabName.charAt(0).toUpperCase() + tabName.slice(1)).classList.remove('hidden');
-      document.getElementById('tab' + tabName.charAt(0).toUpperCase() + tabName.slice(1) + 'Btn').className = "py-3 px-4 font-semibold text-sm border-b-2 border-emerald-500 text-emerald-400 flex items-center gap-2";
+      document.getElementById('tab' + tabName.charAt(0).toUpperCase() + tabName.slice(1) + 'Btn').className = "py-3 px-4 font-semibold text-sm border-b-2 border-emerald-500 text-emerald-400 flex items-center gap-2 whitespace-nowrap";
 
       if (tabName === 'results') renderResults();
-      if (tabName === 'share') generateElectionLink();
     }
 
     function populateAdminFields() {
       document.getElementById('adminElectionTitle').value = window.electionData.title;
       document.getElementById('adminRoleName').value = window.electionData.role;
-      document.getElementById('adminElectionId').value = window.electionData.id || 'sala-principal';
       renderAdminCandidatesList();
-
-      // Firebase Config
-      const fbConf = JSON.parse(localStorage.getItem('urna_fb_config') || '{}');
-      document.getElementById('fbApiKey').value = fbConf.apiKey || '';
-      document.getElementById('fbProjectId').value = fbConf.projectId || '';
-      document.getElementById('fbAppId').value = fbConf.appId || '';
     }
 
     function renderAdminCandidatesList() {
@@ -946,55 +937,29 @@
       document.getElementById('candParty').value = '';
       document.getElementById('candPhoto').value = '';
 
-      window.saveElectionDataLocally();
+      saveLocalElection();
       renderAdminCandidatesList();
       renderScreen();
+      broadcastElectionUpdateToPeers();
     }
 
     function removeCandidate(index) {
       const removed = window.electionData.candidates.splice(index, 1)[0];
       if (removed) delete window.electionData.votes[removed.number];
-      window.saveElectionDataLocally();
+      saveLocalElection();
       renderAdminCandidatesList();
       renderScreen();
+      broadcastElectionUpdateToPeers();
     }
 
     function saveAdminSettings() {
-      window.electionData.title = document.getElementById('adminElectionTitle').value.trim() || 'Eleição Simulada';
+      window.electionData.title = document.getElementById('adminElectionTitle').value.trim() || 'Eleição Simulada P2P';
       window.electionData.role = document.getElementById('adminRoleName').value.trim().toUpperCase() || 'PRESIDENTE';
-      window.electionData.id = document.getElementById('adminElectionId').value.trim() || 'sala-principal';
 
-      window.saveElectionDataLocally();
+      saveLocalElection();
       renderScreen();
+      broadcastElectionUpdateToPeers();
       toggleAdminModal();
-    }
-
-    function generateElectionLink() {
-      const payload = {
-        id: window.electionData.id,
-        title: window.electionData.title,
-        role: window.electionData.role,
-        digitCount: window.electionData.digitCount,
-        candidates: window.electionData.candidates
-      };
-      
-      const jsonStr = JSON.stringify(payload);
-      const b64 = btoa(unescape(encodeURIComponent(jsonStr)));
-      
-      const baseUrl = window.location.origin + window.location.pathname;
-      const fullUrl = `${baseUrl}#election=${b64}`;
-
-      document.getElementById('electionLinkOutput').value = fullUrl;
-    }
-
-    function copyElectionLink() {
-      const input = document.getElementById('electionLinkOutput');
-      input.select();
-      document.execCommand('copy');
-
-      const msg = document.getElementById('copySuccessMsg');
-      msg.classList.remove('hidden');
-      setTimeout(() => msg.classList.add('hidden'), 3000);
     }
 
     window.renderResults = function() {
@@ -1041,37 +1006,19 @@
     };
 
     function resetVotes() {
-      if (confirm("Deseja zerar a votação? Isso limpara os votos computados nesta urna e na nuvem.")) {
+      if (confirm("Deseja zerar a votação nesta apuração?")) {
         Object.keys(window.electionData.votes).forEach(k => {
           window.electionData.votes[k] = 0;
         });
-        window.saveElectionDataLocally();
-        if (typeof window.cloudResetVotes === 'function') {
-          window.cloudResetVotes();
-        }
+        saveLocalElection();
         window.renderResults();
       }
     }
 
-    function saveFirebaseCredentials() {
-      const apiKey = document.getElementById('fbApiKey').value.trim();
-      const projectId = document.getElementById('fbProjectId').value.trim();
-      const appId = document.getElementById('fbAppId').value.trim();
-
-      if (!apiKey || !projectId) {
-        alert('Por favor, preencha pelo menos a API Key e o Project ID do Firebase!');
-        return;
-      }
-
-      const conf = { apiKey, projectId, appId };
-      localStorage.setItem('urna_fb_config', JSON.stringify(conf));
-      alert('Configuração do Firebase salva! Recarregando a página para conectar...');
-      window.location.reload();
-    }
-
     window.onload = function() {
-      loadElectionData();
+      loadLocalElection();
       renderScreen();
+      initWebRTC();
     };
   </script>
 </body>
